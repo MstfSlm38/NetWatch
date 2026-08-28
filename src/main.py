@@ -2,75 +2,16 @@
 
 from __future__ import annotations
 
-import platform
-import socket
-import subprocess
 import threading
-from dataclasses import dataclass
 
 import customtkinter as ctk
 
-
-@dataclass
-class NetworkInfo:
-    connected: bool
-    local_ip: str
-    hostname: str
-    ping: str
-
-
-def get_local_ip() -> str:
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            sock.connect(("1.1.1.1", 80))
-            return sock.getsockname()[0]
-    except OSError:
-        return "Unavailable"
-
-
-def get_hostname() -> str:
-    try:
-        return socket.gethostname()
-    except OSError:
-        return "Unavailable"
-
-
-def check_connection() -> bool:
-    try:
-        with socket.create_connection(("1.1.1.1", 53), timeout=2):
-            return True
-    except OSError:
-        return False
-
-
-def run_ping(host: str = "1.1.1.1") -> str:
-    system = platform.system().lower()
-    command = (
-        ["ping", "-n", "1", "-w", "2000", host]
-        if system == "windows"
-        else ["ping", "-c", "1", "-W", "2", host]
-    )
-
-    try:
-        result = subprocess.run(
-            command, capture_output=True, text=True, timeout=4, check=False
-        )
-        if result.returncode != 0:
-            return "Failed"
-
-        output = result.stdout
-        if "time=" in output:
-            value = output.split("time=", 1)[1].split("ms", 1)[0]
-            return f"{value.strip()} ms"
-        if "time<" in output:
-            value = output.split("time<", 1)[1].split(" ms", 1)[0]
-            return f"<{value.strip()} ms"
-        return "Success"
-    except (OSError, subprocess.SubprocessError):
-        return "Failed"
+from network.monitor import collect_network_info
 
 
 class NetWatchApp(ctk.CTk):
+    """Main NetWatch application window."""
+
     def __init__(self) -> None:
         super().__init__()
         self.title("NetWatch")
@@ -97,11 +38,9 @@ class NetWatchApp(ctk.CTk):
         ctk.CTkLabel(
             sidebar, text="NetWatch", font=ctk.CTkFont(size=24, weight="bold")
         ).grid(row=0, column=0, padx=24, pady=(28, 4))
-
         ctk.CTkLabel(sidebar, text="Network Monitor", text_color="gray").grid(
             row=1, column=0, padx=24, pady=(0, 28)
         )
-
         ctk.CTkButton(sidebar, text="Dashboard", command=self.refresh).grid(
             row=2, column=0, padx=18, pady=8, sticky="ew"
         )
@@ -112,13 +51,11 @@ class NetWatchApp(ctk.CTk):
         header = ctk.CTkFrame(self, fg_color="transparent")
         header.grid(row=0, column=1, padx=28, pady=(24, 8), sticky="ew")
         header.grid_columnconfigure(0, weight=1)
-
         ctk.CTkLabel(
             header,
             text="Network Dashboard",
             font=ctk.CTkFont(size=28, weight="bold"),
         ).grid(row=0, column=0, sticky="w")
-
         self.status_badge = ctk.CTkLabel(
             header, text="Checking...", corner_radius=16, padx=14, pady=6
         )
@@ -139,7 +76,6 @@ class NetWatchApp(ctk.CTk):
     ) -> ctk.CTkLabel:
         card = ctk.CTkFrame(parent)
         card.grid(row=row, column=column, padx=8, pady=8, sticky="nsew")
-
         ctk.CTkLabel(card, text=title, text_color="gray").pack(
             anchor="w", padx=20, pady=(20, 4)
         )
@@ -159,19 +95,13 @@ class NetWatchApp(ctk.CTk):
         ):
             if label is not None:
                 label.configure(text="Checking...")
-
         threading.Thread(target=self._collect_network_info, daemon=True).start()
 
     def _collect_network_info(self) -> None:
-        info = NetworkInfo(
-            connected=check_connection(),
-            local_ip=get_local_ip(),
-            hostname=get_hostname(),
-            ping=run_ping(),
-        )
+        info = collect_network_info()
         self.after(0, lambda: self._update_ui(info))
 
-    def _update_ui(self, info: NetworkInfo) -> None:
+    def _update_ui(self, info) -> None:
         status = "Online" if info.connected else "Offline"
         self.status_value.configure(text=status)
         self.ip_value.configure(text=info.local_ip)
